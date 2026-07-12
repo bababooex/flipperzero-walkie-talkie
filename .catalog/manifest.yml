@@ -1,0 +1,34 @@
+sourcecode:
+  type: git
+  location:
+    origin: https://github.com/coolshrimp/flipperzero-walkie-talkie.git
+    commit_sha: 018f867fa138325bd24d267c4e0df42e472635b9
+short_description: Scan and listen to FRS walkie-talkie channels through the speaker
+description: |
+  Listen in on FRS walkie-talkie channels with your Flipper Zero. Tunes the
+  built-in CC1101 radio to the 22 standard FRS channels (462/467 MHz) and plays
+  whatever it hears through the speaker.
+
+  **Features:**
+
+  - All 22 standard FRS channels with a scrollable channel list
+  - Channel scanner: scans up or down, pauses automatically when a signal is
+    detected, and resumes after the transmission ends
+  - Auto-squelch with adjustable sensitivity
+  - Live RSSI readout with a 5-bar signal-strength meter
+  - Subchannel (privacy-code) labels 1-38 for quick reference
+
+  **Receive-only.** This app does not transmit, and it does not decode
+  CTCSS/DCS - subchannel numbers are labels for matching your handheld radio's
+  display, not a privacy-code filter. It cannot receive FM broadcast radio;
+  those frequencies are outside the CC1101's supported bands.
+
+  **Controls (Listen Now screen):**
+
+  - Up/Down: channel up/down (long press: squelch sensitivity)
+  - Left/Right: subchannel labels (long press: scan direction)
+  - OK: mute/unmute (long press: start/stop scanning)
+  - Back: menu (long press: exit)
+changelog: "@docs/changelog.md"
+screenshots:
+  - screenshots/Screenshot1.png
