@@ -1,4 +1,4 @@
-# Walkie Talkie (FRS Channel Monitor) for Flipper Zero
+# Walkie Talkie — FRS Channel Scanner for Flipper Zero
 
 📻 Listen in on FRS walkie-talkie channels with your Flipper Zero. Tunes the built-in CC1101 radio to the 22 standard FRS channels and plays whatever it hears through the speaker, with auto-squelch and a channel scanner.
 
