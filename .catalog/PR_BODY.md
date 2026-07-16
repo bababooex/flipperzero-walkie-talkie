@@ -32,3 +32,9 @@ Source repository: https://github.com/coolshrimp/flipperzero-walkie-talkie
 - [ ] Fully AI generated (explain what all the generated code does in moderate detail).
 
 - AI assistance was used for portions of the app code (channel scanner debouncing, squelch handling, and UI) and for preparing and validating this catalog manifest. The app tunes the built-in CC1101 to the 22 FRS channels and reports channel activity and RSSI; it does not transmit.
+
+# Reviewer Checklist (Don't fill this out!)
+
+- [ ] Bundle is valid
+- [ ] There are no obvious issues with the source code
+- [ ] I've ran this application and verified its functionality
