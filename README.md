@@ -20,7 +20,13 @@
 
 ## 📸 Screenshots
 
-![Listen Now screen](screenshots/Screenshot1.png)
+| Listen Now | Settings |
+|---|---|
+| ![Listen Now screen](screenshots/Screenshot1.png) | ![Settings screen](screenshots/Screenshot2.png) |
+
+| FRS Channel List | About |
+|---|---|
+| ![FRS channel list](screenshots/Screenshot3.png) | ![About screen](screenshots/Screenshot4.png) |
 
 ## 🎛️ Controls
 
