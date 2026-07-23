@@ -6,30 +6,27 @@
 #include <gui/elements.h>
 #include <furi_hal_speaker.h>
 #include <subghz/devices/devices.h>
-
+#include "helpers/radio_device_loader.h"
 #define TAG "WalkieTalkieApp"
 
 #define SUBGHZ_FREQUENCY_MIN  300000000
 #define SUBGHZ_FREQUENCY_MAX  928000000
 #define SUBGHZ_FREQUENCY_STEP 10000
-#define SUBGHZ_DEVICE_NAME    "cc1101_int"
 
-#define FRS_NUM_CHANNELS    22
-#define FRS_NUM_SUBCHANNELS 38
+#define PMR_NUM_CHANNELS    16
+#define PMR_NUM_SUBCHANNELS 0
 
-// Ticks (at ~10ms each) to hold on an active channel before auto-resuming scan
 #define SCAN_HOLD_TICKS       50
 #define SCAN_SETTLE_MS         75
 #define SCAN_CONFIRM_SAMPLES    2
 #define SQUELCH_LEVEL_DEFAULT -68.0f
 
-
-static const uint32_t frs_frequencies[FRS_NUM_CHANNELS] = {
-    462562500, 462587500, 462612500, 462637500, 462662500,
-    462687500, 462712500, 467562500, 467587500, 467612500,
-    467637500, 467662500, 467687500, 467712500, 462550000,
-    462575000, 462600000, 462625000, 462650000, 462675000,
-    462700000, 462725000};
+//valid pmr channels
+static const uint32_t pmr_frequencies[PMR_NUM_CHANNELS] = {
+    446006250, 446018750, 446031250, 446043750,
+    446056250, 446068750, 446081250, 446093750,
+    446106250, 446118750, 446131250, 446143750,
+    446156250, 446168750, 446181250, 446193750};
 
 typedef enum {
     ScanDirectionUp,
@@ -41,7 +38,7 @@ typedef enum {
     WalkieTalkiePageListenNow,
     WalkieTalkiePageSettings,
     WalkieTalkiePageAbout,
-    WalkieTalkiePageFrsList,
+    WalkieTalkiePagePmrList,
 } WalkieTalkiePage;
 
 typedef struct {
@@ -57,7 +54,7 @@ typedef struct {
     bool scanning;
     ScanDirection scan_direction;
     WalkieTalkiePage page;
-    uint32_t frs_list_index;
+    uint32_t pmr_list_index;
     uint32_t menu_index;
     uint32_t settings_cursor;
     const SubGhzDevice* radio_device;
@@ -65,16 +62,16 @@ typedef struct {
     bool auto_squelch;
     bool scan_paused;
     float squelch_level;
-    uint32_t scan_hold_ticks; // countdown ticks before auto-resuming scan
+    uint32_t scan_hold_ticks;
     uint32_t frequency_set_tick;
     uint8_t signal_samples;
+    const char* device_name;
 } WalkieTalkieApp;
 
 WalkieTalkieApp* walkie_talkie_app_alloc();
 void walkie_talkie_app_free(WalkieTalkieApp* app);
 int32_t walkie_talkie_app(void* p);
 
-// Map RSSI to 0-5 signal bars
 static int walkie_talkie_rssi_bars(float rssi) {
     if(rssi > -50) return 5;
     if(rssi > -60) return 4;
@@ -101,12 +98,12 @@ static void walkie_talkie_draw_callback(Canvas* canvas, void* context) {
     WalkieTalkieApp* app = context;
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str_aligned(canvas, 64, 0, AlignCenter, AlignTop, "Walkie-Talkie");
+    canvas_draw_str_aligned(canvas, 0, 0, AlignLeft, AlignTop, "Walkie-Talkie");
 
     canvas_set_font(canvas, FontSecondary);
     if(app->page == WalkieTalkiePageMenu) {
         canvas_draw_str_aligned(canvas, 64, 10, AlignCenter, AlignTop, "Menu");
-        const char* items[] = {"Listen Now", "Settings", "FRS List", "About"};
+        const char* items[] = {"Listen Now", "Settings", "PMR List", "About"};
         for(uint32_t i = 0; i < 4; i++) {
             char line[20];
             snprintf(line, sizeof(line), "%c %s", (i == app->menu_index) ? '>' : ' ', items[i]);
@@ -116,26 +113,24 @@ static void walkie_talkie_draw_callback(Canvas* canvas, void* context) {
         canvas_set_font(canvas, FontPrimary);
         char ch_big[16];
         snprintf(ch_big, sizeof(ch_big), "CH %02lu", (unsigned long)(app->current_channel + 1));
-        canvas_draw_str_aligned(canvas, 64, 11, AlignCenter, AlignTop, ch_big);
+        canvas_draw_str_aligned(canvas, 128, 0, AlignRight, AlignTop, ch_big);
 
         canvas_set_font(canvas, FontSecondary);
         char sub_str[16];
-        if(app->current_subchannel == 0) {
-            snprintf(sub_str, sizeof(sub_str), "SUB --");
-        } else {
-            snprintf(sub_str, sizeof(sub_str), "SUB %02lu", (unsigned long)app->current_subchannel);
-        }
-        canvas_draw_str_aligned(canvas, 64, 24, AlignCenter, AlignTop, sub_str);
+        snprintf(sub_str, sizeof(sub_str), "PMR 446 MHz");
+        canvas_draw_str_aligned(canvas, 64, 13, AlignCenter, AlignTop, sub_str);
 
         char freq_str[32];
         uint32_t f_mhz = app->frequency / 1000000u;
         uint32_t f_khz = (app->frequency % 1000000u) / 1000u;
         snprintf(freq_str, sizeof(freq_str), "%lu.%03lu MHz", (unsigned long)f_mhz, (unsigned long)f_khz);
-        canvas_draw_str_aligned(canvas, 64, 34, AlignCenter, AlignTop, freq_str);
+        canvas_draw_str_aligned(canvas, 64, 23, AlignCenter, AlignTop, freq_str);
 
         char rssi_str[20];
         snprintf(rssi_str, sizeof(rssi_str), "RSSI: %.0f dBm", (double)app->rssi);
-        canvas_draw_str_aligned(canvas, 64, 44, AlignCenter, AlignTop, rssi_str);
+        canvas_draw_str_aligned(canvas, 64, 33, AlignCenter, AlignTop, rssi_str);
+        //what device is fap using?
+        canvas_draw_str_aligned(canvas, 64, 43, AlignCenter, AlignTop, app->device_name);
 
         const char* status_str;
         if(app->scanning && !app->scan_paused) {
@@ -147,7 +142,6 @@ static void walkie_talkie_draw_callback(Canvas* canvas, void* context) {
         }
         canvas_draw_str_aligned(canvas, 4, 55, AlignLeft, AlignTop, status_str);
 
-        // Signal strength bars at bottom-right
         int bars = walkie_talkie_rssi_bars(app->rssi);
         walkie_talkie_draw_signal_bars(canvas, bars, 94, 63);
 
@@ -176,16 +170,15 @@ static void walkie_talkie_draw_callback(Canvas* canvas, void* context) {
         }
     } else if(app->page == WalkieTalkiePageAbout) {
         canvas_draw_str_aligned(canvas, 64, 10, AlignCenter, AlignTop, "About");
-        canvas_draw_str_aligned(canvas, 64, 20, AlignCenter, AlignTop, "FRS Channel Monitor");
-        canvas_draw_str_aligned(canvas, 64, 30, AlignCenter, AlignTop, "Subchannels are labels");
+        canvas_draw_str_aligned(canvas, 64, 20, AlignCenter, AlignTop, "PMR Channel Monitor");
+        canvas_draw_str_aligned(canvas, 64, 30, AlignCenter, AlignTop, "446 MHz Band");
         canvas_draw_str_aligned(canvas, 64, 40, AlignCenter, AlignTop, "No CTCSS/DCS decode");
         canvas_draw_str_aligned(canvas, 64, 50, AlignCenter, AlignTop, "by coolshrimp");
-    } else if(app->page == WalkieTalkiePageFrsList) {
+    } else if(app->page == WalkieTalkiePagePmrList) {
         canvas_draw_line(canvas, 0, 9, 127, 9);
 
-        // Scroll window: show 5 rows fitting below the header line
-        uint32_t total = FRS_NUM_CHANNELS;
-        uint32_t sel = app->frs_list_index;
+        uint32_t total = PMR_NUM_CHANNELS;
+        uint32_t sel = app->pmr_list_index;
         uint32_t start = (sel >= 2) ? sel - 2 : 0;
         if(start + 5 > total) start = (total >= 5) ? total - 5 : 0;
 
@@ -193,7 +186,7 @@ static void walkie_talkie_draw_callback(Canvas* canvas, void* context) {
             uint32_t idx = start + i;
             if(idx >= total) break;
 
-            uint32_t freq_hz = frs_frequencies[idx];
+            uint32_t freq_hz = pmr_frequencies[idx];
             uint32_t mhz = freq_hz / 1000000;
             uint32_t khz = (freq_hz % 1000000) / 1000;
             int row_y = 11 + (int)(i * 10);
@@ -274,14 +267,20 @@ static void walkie_talkie_update_rssi(WalkieTalkieApp* app) {
 static bool walkie_talkie_init_subghz(WalkieTalkieApp* app) {
     subghz_devices_init();
 
-    const SubGhzDevice* device = subghz_devices_get_by_name(SUBGHZ_DEVICE_NAME);
-    if(!device) {
-        FURI_LOG_E(TAG, "Failed to get SubGhzDevice");
+    app->radio_device = radio_device_loader_set(
+        NULL,
+        SubGhzRadioDeviceTypeExternalCC1101);
+
+    if(!app->radio_device) {
+        FURI_LOG_E(TAG, "Failed to get any SubGhzDevice");
         return false;
     }
-
-    app->radio_device = device;
-
+    //using helper for radio device
+    const char* ext_name = subghz_devices_get_name(subghz_devices_get_by_name("cc1101_ext"));
+    const char* device_name = subghz_devices_get_name(app->radio_device);
+    app->device_name = (strcmp(device_name, ext_name) == 0) ? "DEV: ExtCC1101" : "DEV: IntCC1101";
+    //sets alias, lazy to rewrite device
+    const SubGhzDevice* device=app->radio_device;
     subghz_devices_begin(device);
 
     if(!subghz_devices_is_frequency_valid(device, app->frequency)) {
@@ -304,6 +303,7 @@ static bool walkie_talkie_init_subghz(WalkieTalkieApp* app) {
     return true;
 }
 
+
 static void walkie_talkie_process_scanning(WalkieTalkieApp* app) {
     if((furi_get_tick() - app->frequency_set_tick) < SCAN_SETTLE_MS) return;
     walkie_talkie_update_rssi(app);
@@ -312,12 +312,10 @@ static void walkie_talkie_process_scanning(WalkieTalkieApp* app) {
 
     if(app->scan_paused) {
         if(signal_detected) {
-            // Reset hold timer while signal is still active
             app->scan_hold_ticks = SCAN_HOLD_TICKS;
         } else if(app->scan_hold_ticks > 0) {
             app->scan_hold_ticks--;
         } else {
-            // Signal gone long enough — resume scanning
             app->scan_paused = false;
             walkie_talkie_apply_audio(app);
             FURI_LOG_D(TAG, "Scan auto-resumed");
@@ -329,20 +327,19 @@ static void walkie_talkie_process_scanning(WalkieTalkieApp* app) {
         if(++app->signal_samples < SCAN_CONFIRM_SAMPLES) return;
         app->scan_paused = true;
         app->scan_hold_ticks = SCAN_HOLD_TICKS;
-        walkie_talkie_apply_audio(app); // unmute so user hears the signal
+        walkie_talkie_apply_audio(app);
         FURI_LOG_D(TAG, "Scan paused on CH %lu", app->current_channel + 1);
         return;
     }
     app->signal_samples = 0;
 
-    // Advance to next channel in the selected direction
     if(app->scan_direction == ScanDirectionUp) {
-        app->current_channel = (app->current_channel + 1) % FRS_NUM_CHANNELS;
+        app->current_channel = (app->current_channel + 1) % PMR_NUM_CHANNELS;
     } else {
         app->current_channel =
-            (app->current_channel > 0) ? app->current_channel - 1 : FRS_NUM_CHANNELS - 1;
+            (app->current_channel > 0) ? app->current_channel - 1 : PMR_NUM_CHANNELS - 1;
     }
-    walkie_talkie_set_frequency(app, frs_frequencies[app->current_channel]);
+    walkie_talkie_set_frequency(app, pmr_frequencies[app->current_channel]);
 }
 
 WalkieTalkieApp* walkie_talkie_app_alloc() {
@@ -356,7 +353,7 @@ WalkieTalkieApp* walkie_talkie_app_alloc() {
     app->current_channel = 0;
     app->current_subchannel = 0;
     app->mute = false;
-    app->frequency = frs_frequencies[0];
+    app->frequency = pmr_frequencies[0];
     app->rssi = -100.0f;
     app->scanning = false;
     app->scan_direction = ScanDirectionUp;
@@ -368,7 +365,7 @@ WalkieTalkieApp* walkie_talkie_app_alloc() {
     app->auto_squelch = true;
     app->squelch_level = SQUELCH_LEVEL_DEFAULT;
     app->page = WalkieTalkiePageListenNow;
-    app->frs_list_index = 0;
+    app->pmr_list_index = 0;
     app->menu_index = 0;
     app->settings_cursor = 0;
     app->radio_device = NULL;
@@ -388,7 +385,7 @@ void walkie_talkie_app_free(WalkieTalkieApp* app) {
 
     if(app->radio_device) {
         subghz_devices_stop_async_rx(app->radio_device);
-        subghz_devices_end(app->radio_device);
+        radio_device_loader_end(app->radio_device);
     }
 
     subghz_devices_deinit();
@@ -431,20 +428,18 @@ int32_t walkie_talkie_app(void* p) {
                     if(app->page == WalkieTalkiePageMenu) {
                         if(app->menu_index == 0) app->page = WalkieTalkiePageListenNow;
                         else if(app->menu_index == 1) app->page = WalkieTalkiePageSettings;
-                        else if(app->menu_index == 2) app->page = WalkieTalkiePageFrsList;
+                        else if(app->menu_index == 2) app->page = WalkieTalkiePagePmrList;
                         else if(app->menu_index == 3) app->page = WalkieTalkiePageAbout;
-                    } else if(app->page == WalkieTalkiePageFrsList) {
-                        // Tune to the highlighted channel
-                        app->current_channel = app->frs_list_index;
+                    } else if(app->page == WalkieTalkiePagePmrList) {
+                        app->current_channel = app->pmr_list_index;
                         app->scanning = false;
                         app->scan_paused = false;
-                        walkie_talkie_set_frequency(app, frs_frequencies[app->current_channel]);
+                        walkie_talkie_set_frequency(app, pmr_frequencies[app->current_channel]);
                         app->page = WalkieTalkiePageListenNow;
                     } else if(
                         app->page == WalkieTalkiePageSettings &&
                         app->settings_cursor == 1 &&
                         app->auto_squelch) {
-                        // Reset squelch to default
                         app->squelch_level = SQUELCH_LEVEL_DEFAULT;
                     } else {
                         app->mute = !app->mute;
@@ -455,32 +450,30 @@ int32_t walkie_talkie_app(void* p) {
                         if(app->menu_index > 0) app->menu_index--;
                     } else if(app->page == WalkieTalkiePageSettings) {
                         if(app->settings_cursor > 0) app->settings_cursor--;
-                    } else if(app->page == WalkieTalkiePageFrsList) {
-                        if(app->frs_list_index > 0) app->frs_list_index--;
+                    } else if(app->page == WalkieTalkiePagePmrList) {
+                        if(app->pmr_list_index > 0) app->pmr_list_index--;
                     } else {
-                        // Channel up
                         app->current_channel =
-                            (app->current_channel < FRS_NUM_CHANNELS - 1) ?
+                            (app->current_channel < PMR_NUM_CHANNELS - 1) ?
                                 app->current_channel + 1 : 0;
                         app->scanning = false;
                         app->scan_paused = false;
-                        walkie_talkie_set_frequency(app, frs_frequencies[app->current_channel]);
+                        walkie_talkie_set_frequency(app, pmr_frequencies[app->current_channel]);
                     }
                 } else if(event.key == InputKeyDown) {
                     if(app->page == WalkieTalkiePageMenu) {
                         if(app->menu_index < 3) app->menu_index++;
                     } else if(app->page == WalkieTalkiePageSettings) {
                         if(app->auto_squelch && app->settings_cursor < 1) app->settings_cursor++;
-                    } else if(app->page == WalkieTalkiePageFrsList) {
-                        if(app->frs_list_index < FRS_NUM_CHANNELS - 1) app->frs_list_index++;
+                    } else if(app->page == WalkieTalkiePagePmrList) {
+                        if(app->pmr_list_index < PMR_NUM_CHANNELS - 1) app->pmr_list_index++;
                     } else {
-                        // Channel down
                         app->current_channel =
                             (app->current_channel > 0) ?
-                                app->current_channel - 1 : FRS_NUM_CHANNELS - 1;
+                                app->current_channel - 1 : PMR_NUM_CHANNELS - 1;
                         app->scanning = false;
                         app->scan_paused = false;
-                        walkie_talkie_set_frequency(app, frs_frequencies[app->current_channel]);
+                        walkie_talkie_set_frequency(app, pmr_frequencies[app->current_channel]);
                     }
                 } else if(event.key == InputKeyLeft) {
                     if(app->page == WalkieTalkiePageSettings) {
@@ -490,10 +483,6 @@ int32_t walkie_talkie_app(void* p) {
                         } else if(app->settings_cursor == 1 && app->auto_squelch) {
                             if(app->squelch_level > -120.0f) app->squelch_level -= 1.0f;
                         }
-                    } else if(
-                        app->page != WalkieTalkiePageFrsList &&
-                        app->page != WalkieTalkiePageMenu) {
-                        if(app->current_subchannel > 0) app->current_subchannel--;
                     }
                 } else if(event.key == InputKeyRight) {
                     if(app->page == WalkieTalkiePageSettings) {
@@ -503,11 +492,6 @@ int32_t walkie_talkie_app(void* p) {
                         } else if(app->settings_cursor == 1 && app->auto_squelch) {
                             if(app->squelch_level < -30.0f) app->squelch_level += 1.0f;
                         }
-                    } else if(
-                        app->page != WalkieTalkiePageFrsList &&
-                        app->page != WalkieTalkiePageMenu) {
-                        if(app->current_subchannel < FRS_NUM_SUBCHANNELS)
-                            app->current_subchannel++;
                     }
                 } else if(event.key == InputKeyBack) {
                     if(app->page == WalkieTalkiePageMenu) {
@@ -537,12 +521,10 @@ int32_t walkie_talkie_app(void* p) {
                 } else if(event.key == InputKeyRight) {
                     app->scan_direction = ScanDirectionUp;
                 } else if(event.key == InputKeyUp) {
-                    // Quick squelch raise from Listen screen
                     if(app->page == WalkieTalkiePageListenNow && app->squelch_level < -30.0f) {
                         app->squelch_level += 1.0f;
                     }
                 } else if(event.key == InputKeyDown) {
-                    // Quick squelch lower from Listen screen
                     if(app->page == WalkieTalkiePageListenNow && app->squelch_level > -120.0f) {
                         app->squelch_level -= 1.0f;
                     }
