@@ -385,6 +385,7 @@ void walkie_talkie_app_free(WalkieTalkieApp* app) {
 
     if(app->radio_device) {
         subghz_devices_stop_async_rx(app->radio_device);
+        //end cc1101 via helper end function
         radio_device_loader_end(app->radio_device);
     }
 
