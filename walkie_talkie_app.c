@@ -173,7 +173,7 @@ static void walkie_talkie_draw_callback(Canvas* canvas, void* context) {
         canvas_draw_str_aligned(canvas, 64, 20, AlignCenter, AlignTop, "PMR Channel Monitor");
         canvas_draw_str_aligned(canvas, 64, 30, AlignCenter, AlignTop, "446 MHz Band");
         canvas_draw_str_aligned(canvas, 64, 40, AlignCenter, AlignTop, "No CTCSS/DCS decode");
-        canvas_draw_str_aligned(canvas, 64, 50, AlignCenter, AlignTop, "by coolshrimp");
+        canvas_draw_str_aligned(canvas, 64, 50, AlignCenter, AlignTop, "original by coolshrimp");
     } else if(app->page == WalkieTalkiePagePmrList) {
         canvas_draw_line(canvas, 0, 9, 127, 9);
 
